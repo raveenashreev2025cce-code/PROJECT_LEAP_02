@@ -1,0 +1,419 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QueueEase - OPD Queue Management</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            background: #f1f5f9;
+            color: #1e293b;
+        }
+
+        header {
+            background: #2563eb;
+            color: white;
+            padding: 22px 8%;
+        }
+
+        header h1 {
+            margin: 0;
+        }
+
+        header p {
+            margin-bottom: 0;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 22px;
+            margin-bottom: 22px;
+            border-radius: 12px;
+            box-shadow: 0 3px 12px #0000000d;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: #1d4ed8;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 7px;
+            font-weight: bold;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 11px;
+            border: 1px solid #cbd5e1;
+            border-radius: 7px;
+        }
+
+        button {
+            border: none;
+            padding: 11px 17px;
+            border-radius: 7px;
+            background: #2563eb;
+            color: white;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        .secondary {
+            background: #475569;
+        }
+
+        .priority {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 15px;
+        }
+
+        .priority input {
+            width: auto;
+        }
+
+        .message {
+            margin-top: 12px;
+            font-weight: bold;
+        }
+
+        .error {
+            color: #dc2626;
+        }
+
+        .success {
+            color: #15803d;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            min-width: 600px;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        th {
+            background: #eff6ff;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        .status {
+            font-weight: bold;
+        }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: #64748b;
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>QueueEase</h1>
+    <p>OPD Token and Queue Management System</p>
+</header>
+
+<main>
+
+    <section class="card">
+        <h2>Generate Patient Token</h2>
+
+        <div class="form-grid">
+            <div>
+                <label for="doctor">Select Doctor</label>
+                <select id="doctor">
+                    <option value="">Loading doctors...</option>
+                </select>
+            </div>
+
+            <div>
+                <label for="patientId">Patient ID</label>
+                <input type="number" id="patientId"
+                       placeholder="Enter patient ID" min="1">
+            </div>
+        </div>
+
+        <label class="priority">
+            <input type="checkbox" id="priority">
+            Emergency / Priority Token
+        </label>
+
+        <button onclick="generateToken()">Generate Token</button>
+        <div id="generateMessage" class="message"></div>
+    </section>
+
+    <section class="card">
+        <h2>Today's Queue</h2>
+
+        <div class="form-grid">
+            <div>
+                <label for="queueDoctor">Select Doctor</label>
+                <select id="queueDoctor">
+                    <option value="">Select doctor</option>
+                </select>
+            </div>
+        </div>
+
+        <button onclick="loadQueue()">View Queue</button>
+        <button class="secondary" onclick="serveNext()">Serve Next Token</button>
+
+        <div id="queueMessage" class="message"></div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Token No.</th>
+                    <th>Patient</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Waiting Time</th>
+                </tr>
+                </thead>
+                <tbody id="queueTable">
+                <tr>
+                    <td colspan="5">Select a doctor to view the queue.</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+</main>
+
+<footer>
+    QueueEase OPD Management System
+</footer>
+
+<script>
+    const API = "http://localhost:8080";
+
+    async function loadDoctors() {
+        try {
+            const response = await fetch(`${API}/doctors`);
+
+            if (!response.ok) {
+                throw new Error("Could not load doctors");
+            }
+
+            const doctors = await response.json();
+            const doctorSelects = [
+                document.getElementById("doctor"),
+                document.getElementById("queueDoctor")
+            ];
+
+            doctorSelects.forEach(select => {
+                select.innerHTML = '<option value="">Select doctor</option>';
+
+                doctors.forEach(doctor => {
+                    const option = document.createElement("option");
+                    option.value = doctor.id;
+                    option.textContent = `${doctor.name} - ${doctor.department}`;
+                    select.appendChild(option);
+                });
+            });
+        } catch (error) {
+            document.getElementById("generateMessage").textContent =
+                "Unable to load doctors. Check that Spring Boot is running.";
+            document.getElementById("generateMessage").className =
+                "message error";
+        }
+    }
+
+    async function generateToken() {
+        const doctorId = document.getElementById("doctor").value;
+        const patientId = document.getElementById("patientId").value;
+        const priority = document.getElementById("priority").checked;
+        const message = document.getElementById("generateMessage");
+
+        if (!doctorId || !patientId || Number(patientId) < 1) {
+            message.textContent = "Please select a doctor and enter a valid patient ID.";
+            message.className = "message error";
+            return;
+        }
+
+        try {
+            const url = `${API}/tokens?doctorId=${doctorId}` +
+                `&patientId=${patientId}&priority=${priority}`;
+
+            const response = await fetch(url, { method: "POST" });
+
+            if (!response.ok) {
+                throw new Error(await response.text());
+            }
+
+            const token = await response.json();
+
+            message.textContent =
+                `Token generated successfully! Token number: ${token.tokenNumber}`;
+            message.className = "message success";
+
+            document.getElementById("queueDoctor").value = doctorId;
+            document.getElementById("patientId").value = "";
+            document.getElementById("priority").checked = false;
+
+            loadQueue();
+        } catch (error) {
+            message.textContent = "Token generation failed: " + error.message;
+            message.className = "message error";
+        }
+    }
+
+    async function loadQueue() {
+        const doctorId = document.getElementById("queueDoctor").value;
+        const table = document.getElementById("queueTable");
+        const message = document.getElementById("queueMessage");
+
+        if (!doctorId) {
+            message.textContent = "Please select a doctor.";
+            message.className = "message error";
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API}/tokens/doctor/${doctorId}`);
+
+            if (!response.ok) {
+                throw new Error("Could not retrieve queue");
+            }
+
+            const tokens = await response.json();
+            table.innerHTML = "";
+
+            if (tokens.length === 0) {
+                table.innerHTML =
+                    '<tr><td colspan="5">No tokens for today.</td></tr>';
+                return;
+            }
+
+            tokens.sort((a, b) => {
+                if (a.status === "COMPLETED" && b.status !== "COMPLETED") return 1;
+                if (b.status === "COMPLETED" && a.status !== "COMPLETED") return -1;
+                if (a.priority !== b.priority) return b.priority - a.priority;
+                return a.tokenNumber - b.tokenNumber;
+            });
+
+            for (const token of tokens) {
+                let waiting = "-";
+
+                if (token.status === "WAITING") {
+                    try {
+                        const waitResponse = await fetch(
+                            `${API}/tokens/${token.id}/waiting-time`
+                        );
+
+                        if (waitResponse.ok) {
+                            const waitData = await waitResponse.json();
+                            waiting = `${waitData.estimatedWaitingTime} min`;
+                        }
+                    } catch (e) {
+                        waiting = "Unavailable";
+                    }
+                } else if (token.status === "SERVING") {
+                    waiting = "Now serving";
+                } else {
+                    waiting = "Completed";
+                }
+
+                const row = document.createElement("tr");
+                const patientName = token.patient?.name ?? `ID ${token.patient?.id ?? "-"}`;
+
+                [
+                    token.tokenNumber,
+                    patientName,
+                    token.priority ? "Yes" : "No",
+                    token.status,
+                    waiting
+                ].forEach(value => {
+                    const cell = document.createElement("td");
+                    cell.textContent = value;
+                    row.appendChild(cell);
+                });
+
+                table.appendChild(row);
+            }
+
+            message.textContent = "";
+        } catch (error) {
+            message.textContent = "Unable to load queue: " + error.message;
+            message.className = "message error";
+        }
+    }
+
+    async function serveNext() {
+        const doctorId = document.getElementById("queueDoctor").value;
+        const message = document.getElementById("queueMessage");
+
+        if (!doctorId) {
+            message.textContent = "Please select a doctor first.";
+            message.className = "message error";
+            return;
+        }
+
+        try {
+            const response = await fetch(
+                `${API}/tokens/doctor/${doctorId}/next`,
+                { method: "PUT" }
+            );
+
+            if (!response.ok) {
+                throw new Error(await response.text());
+            }
+
+            const token = await response.json();
+
+            message.textContent =
+                `Now serving token ${token.tokenNumber}.`;
+            message.className = "message success";
+
+            await loadQueue();
+        } catch (error) {
+            message.textContent = "Could not serve next token: " + error.message;
+            message.className = "message error";
+        }
+    }
+
+    loadDoctors();
+</script>
+
+</body>
+</html>
